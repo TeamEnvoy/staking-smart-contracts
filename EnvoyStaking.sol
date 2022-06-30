@@ -46,7 +46,6 @@ contract EnvoyStaking is Pausable, AccessControl {
         uint256 initialAmount;
         uint256 lockupPeriod;
         uint256 apy;
-        bool claimed;
         bool isEmbargo;
     }
     
@@ -114,7 +113,6 @@ contract EnvoyStaking is Pausable, AccessControl {
                                     initialAmount:_totalStake, 
                                     lockupPeriod:_lockupPeriod, 
                                     apy: apy,
-                                    claimed:false,
                                     isEmbargo:_isEmbargo
         });
         
@@ -136,14 +134,13 @@ contract EnvoyStaking is Pausable, AccessControl {
     
     function _finishStake(address _account) internal {
         require(stakes[_account].exists, "Invalid stake");
-        require(!stakes[_account].claimed, "Already claimed");
 
         Stake storage stake = stakes[_account];
         
         uint256 finishesOn = _calculateFinishTimestamp(stake.createdOn, stake.lockupPeriod);
         require(block.timestamp > finishesOn, "Can't be finished yet");
         
-        stake.claimed = true;
+        stake.exists = false;
         
         uint256 totalRewards = calculateRewards(stake.initialAmount, stake.lockupPeriod, stake.apy);
 
@@ -282,14 +279,14 @@ contract EnvoyStaking is Pausable, AccessControl {
         require(token.transfer(_sendTo, amount));
     }
     
-    function getStake(address _account) external view returns (bool _exists, uint256 _createdOn, uint256 _initialAmount, uint256 _lockupPeriod, uint256 _apy, bool _claimed, bool _isEmbargo, uint256 _finishesOn, uint256 _totalRewards) {
+    function getStake(address _account) external view returns (bool _exists, uint256 _createdOn, uint256 _initialAmount, uint256 _lockupPeriod, uint256 _apy, bool _isEmbargo, uint256 _finishesOn, uint256 _totalRewards) {
         Stake memory stake = stakes[_account];
         if (!stake.exists) {
-            return (false, 0, 0, 0, 0, false, false, 0, 0);
+            return (false, 0, 0, 0, 0, false, 0, 0);
         }
         uint256 finishesOn = calculateFinishTimestamp(_account);
         uint256 totalRewards = calculateRewards(stake.initialAmount, stake.lockupPeriod, stake.apy);
-        return (stake.exists, stake.createdOn, stake.initialAmount, stake.lockupPeriod, stake.apy, stake.claimed, stake.isEmbargo, finishesOn, totalRewards);
+        return (stake.exists, stake.createdOn, stake.initialAmount, stake.lockupPeriod, stake.apy, stake.isEmbargo, finishesOn, totalRewards);
     }
 
     function pause() public onlyRole(PAUSER_ROLE) {
