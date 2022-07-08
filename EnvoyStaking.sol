@@ -16,14 +16,16 @@ contract EnvoyStaking is Pausable, AccessControl {
     event StakeFinished(address indexed user, uint256 totalRewards);
     event LockingIncreased(address indexed user, uint256 total);
     event LockingReleased(address indexed user, uint256 total);
+    event APYSet(uint256 indexed _lockupPeriod, uint256 _from, uint256 _to, uint256 _apy);
+    event APYRemoved(uint256 indexed _lockupPeriod, uint256 _from, uint256 _to);
     
     IERC20 token = IERC20(0xB9F120eE3Bd8F1ac40a8D9CdB7497A304AA00C61);
 
-    uint256 public APY_1 = 500; //5%
-    uint256 public APY_3 = 800; //8%
-    uint256 public APY_6 = 1100; //11%
-    uint256 public APY_9 = 1300; //13%
-    uint256 public APY_12 = 1500; //15%
+    uint256 public constant APY_1 = 500; //5%
+    uint256 public constant APY_3 = 800; //8%
+    uint256 public constant APY_6 = 1100; //11%
+    uint256 public constant APY_9 = 1300; //13%
+    uint256 public constant APY_12 = 1500; //15%
     
     uint256 public totalStakes;
     uint256 public totalActiveStakes;
@@ -31,7 +33,7 @@ contract EnvoyStaking is Pausable, AccessControl {
     uint256 public totalStaked;
     uint256 public totalStakeClaimed;
     uint256 public totalRewardsClaimed;
-    uint256 public minimumStake = 0;
+    uint256 public minimumStake = 1e18;
 
     struct APY {
         uint256 from;
@@ -166,14 +168,18 @@ contract EnvoyStaking is Pausable, AccessControl {
         return _timestamp + _lockupPeriod * 30 days;
     }
 
+    //If minimum stake is set to zero, no minimum stake will be required
     function setMinimumStake(uint256 _minimumStake) public {
-        require(hasRole(DEFAULT_ADMIN_ROLE, msg.sender));
+        require(hasRole(DEFAULT_ADMIN_ROLE, msg.sender), "Not allowed");
+        require(_minimumStake >= 1e18, "Minimum stake is 1 VOY");
 
         minimumStake = _minimumStake;
     }
     
     function increaseLocking(address _beneficiary, uint256 _total) public {
-        require(hasRole(LOCKINGS_ROLE, msg.sender));
+        require(hasRole(LOCKINGS_ROLE, msg.sender), "Not allowed");
+        require(_beneficiary != address(0), "Invalid address");
+        require(_total > 0, "Invalid value");
 
         require(IERC20(token).transferFrom(msg.sender, address(this), _total), "Couldn't take the tokens");
         
@@ -183,9 +189,10 @@ contract EnvoyStaking is Pausable, AccessControl {
     }
     
     function releaseFromLocking(address _beneficiary, uint256 _total) public {
-        require(hasRole(LOCKINGS_ROLE, msg.sender));
+        require(hasRole(LOCKINGS_ROLE, msg.sender), "Not allowed");
+        require(_total > 0, "Invalid value");
         require(lockings[_beneficiary] >= _total, "Not enough locked tokens");
-        
+
         lockings[_beneficiary] -= _total;
 
         require(IERC20(token).transfer(_beneficiary, _total), "Couldn't send the tokens");
@@ -194,12 +201,14 @@ contract EnvoyStaking is Pausable, AccessControl {
     }
 
     function createEmbargo(address _account, uint256 _totalStake, uint256 _lockupPeriod, uint256 _forceAPY) public {
-        require(hasRole(EMBARGOES_ROLE, msg.sender));
+        require(hasRole(EMBARGOES_ROLE, msg.sender), "Not allowed");
+        require(_account != address(0), "Invalid address");
+        require(_totalStake > 1e18, "Invalid value");
         _addStake(_account, _totalStake, _lockupPeriod, true, _forceAPY);
     }
 
     function _setAPY(uint256 _lockupPeriod, uint256 _from, uint256 _to, uint256 _apy) public {
-        require(hasRole(RATES_ROLE, msg.sender));
+        require(hasRole(RATES_ROLE, msg.sender), "Not allowed");
         for (uint i = 0; i < apys[_lockupPeriod].length; i++) {
             if (apys[_lockupPeriod][i].from == _from && apys[_lockupPeriod][i].to == _to) {
                 apys[_lockupPeriod][i].apy = _apy;
@@ -210,14 +219,16 @@ contract EnvoyStaking is Pausable, AccessControl {
 
         APY memory apy = APY({from:_from, to:_to, apy:_apy, enabled:true});
         apys[_lockupPeriod].push(apy);
+        emit APYSet(_lockupPeriod, _from, _to, _apy);
     }
 
     function _removeAPY(uint256 _lockupPeriod, uint256 _from, uint256 _to) public {
-        require(hasRole(RATES_ROLE, msg.sender));
+        require(hasRole(RATES_ROLE, msg.sender), "Not allowed");
 
         for (uint i = 0; i < apys[_lockupPeriod].length; i++) {
             if (apys[_lockupPeriod][i].from == _from && apys[_lockupPeriod][i].to == _to) {
                 apys[_lockupPeriod][i].enabled = false;
+                emit APYRemoved(_lockupPeriod, _from, _to);
                 return;
             }
         }
@@ -226,7 +237,7 @@ contract EnvoyStaking is Pausable, AccessControl {
     }
     
     function finishEmbargo(address _account) public {
-        require(hasRole(EMBARGOES_ROLE, msg.sender));
+        require(hasRole(EMBARGOES_ROLE, msg.sender), "Not allowed");
         require(stakes[_account].isEmbargo, "Not an embargo");
 
         _finishStake(_account);
@@ -275,7 +286,7 @@ contract EnvoyStaking is Pausable, AccessControl {
     }
     
     function _extract(uint256 amount, address _sendTo) public {
-        require(hasRole(DEFAULT_ADMIN_ROLE, msg.sender));
+        require(hasRole(DEFAULT_ADMIN_ROLE, msg.sender), "Not allowed");
         require(token.transfer(_sendTo, amount));
     }
     
